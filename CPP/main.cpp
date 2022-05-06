@@ -49,13 +49,14 @@ std::vector<Share*> CreateShares(Party* party, int amountOfShares, int fieldSize
     return shares;
 }
 
-void DistributeShares(std::vector<Party>& parties, Party* party, std::set<std::set<Party*>> nonQualifiedSets, std::vector<Share*> shares)
+void DistributeShares(std::vector<Party>& parties, Party* party, std::set<std::set<Party*>> nonQualifiedSets, std::vector<Share*> shares, std::vector<std::set<Party*>> test)
 {
 
     // for each share (we always have the same amount of shares as non qualified sets of parties)
     for(int share = 0; share < shares.size(); share++)
     {
-        std::set<Party*> shouldNotReceive = *std::next(nonQualifiedSets.begin(), share);
+        //std::set<Party*> shouldNotReceive = *std::next(nonQualifiedSets.begin(), share);
+        std::set<Party*> shouldNotReceive = test[share];
 
         for(Party& p : parties)
         {
@@ -68,12 +69,13 @@ void DistributeShares(std::vector<Party>& parties, Party* party, std::set<std::s
     }
 }
 
-void DistributeInput(std::vector<Party>& parties, std::set<std::set<Party*>> nonQualifiedSets, int fieldSize) {
+void DistributeInput(std::vector<Party>& parties, std::set<std::set<Party*>> nonQualifiedSets, int fieldSize, std::vector<std::set<Party*>> test)
+{
     for(int i = 0; i < parties.size(); i++) {
 
         //Get the shares from party i
         std::vector<Share*> shares = CreateShares(&parties[i], nonQualifiedSets.size(), fieldSize);
-        DistributeShares(parties, &parties[i], nonQualifiedSets, shares);
+        DistributeShares(parties, &parties[i], nonQualifiedSets, shares, test);
     }
 }
 //
@@ -208,16 +210,16 @@ int main() {
     //==================================== PHASE 1 =====================================================================
     //Creating parties and distributing their shares among the other parties participating in the protocol
 
-    //Define the field size as a prime
-    int fieldSize = 100003;
+    //Define the field size as a large prime
+    int fieldSize = 2147483647;
     //Amount of parties participating in the protocol
-    int amountOfParties = 3;
+    int amountOfParties = 15;
     //Amount of passive adversaries participating in the protocol
     //int amountOfPassiveAdversaries = 0;
     //Amount of parties with an input
     //int partiesWithInput = 1;
     //How many parties are required to reconstruct the secret
-    int amountToReconstruct = 2;
+    int amountToReconstruct = 11;
 
     //Create the parties participating in the protocol
     std::vector<Party> parties = CreateParties(amountOfParties);
@@ -225,15 +227,13 @@ int main() {
     //Define the Non qualified sets (secrecy structure) for share distribution (a basic threshold access structure)
     std::set<std::set<Party*>> nonQualifiedSets = FindNonQualifiedSets(parties, amountToReconstruct);
 
-    //Transform set of nonQualified to vector for indexes to use in distributing shares
-    //TODO: It is possible to iterate over the set when using std::set instead of unorderd_set, so no need to convert to vector
-    //std::vector <std::set<int>> nonQualifiedSetsIndexed;
-    //nonQualifiedSetsIndexed.reserve (nonQualifiedSets.size ());
-    //std::copy (nonQualifiedSets.begin (), nonQualifiedSets.end (), std::back_inserter (nonQualifiedSetsIndexed));
+    //Transform set of nonQualified to vector for indexes to use in distributing shares. This makes lookup time
+    //O(1) instead of O(n), which dramatically increases performance (test with 15 parties made a 10x difference)
+    std::vector <std::set<Party*>> nonQualifiedSetsIndexed;
+    nonQualifiedSetsIndexed.reserve (nonQualifiedSets.size ());
+    std::copy (nonQualifiedSets.begin (), nonQualifiedSets.end (), std::back_inserter (nonQualifiedSetsIndexed));
 
-    //Distribute each parties shares to the other parties
-    //DistributeInput(parties, nonQualifiedSetsIndexed, fieldSize);
-    DistributeInput(parties, nonQualifiedSets, fieldSize);
+    DistributeInput(parties, nonQualifiedSets, fieldSize, nonQualifiedSetsIndexed);
 
 
     //==================================== PHASE 2 =====================================================================
