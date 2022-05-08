@@ -2,18 +2,23 @@
 #include <set>
 #include <vector>
 #include <random>
+#include <map>
 
 //Needs to be declared because of circular dependency
 struct Party;
 struct Share;
 
 struct Share{
+    int id;
     int value;
     Party* owner;
+    int batch_id;
 
-    Share(int v, Party* o){
+    Share(int v, Party* o, int batch_id, int id){
         value = v;
         owner = o;
+        this->batch_id = batch_id;
+        this->id = id;
     }
 };
 
@@ -30,7 +35,7 @@ struct Party{
     }
 };
 
-std::vector<Share*> CreateShares(Party* party, int amountOfShares, int fieldSize)
+std::vector<Share*> CreateShares(Party* party, int amountOfShares, int fieldSize, int batch_id)
 {
     std::random_device dev;
     std::mt19937 rng(dev());
@@ -41,11 +46,11 @@ std::vector<Share*> CreateShares(Party* party, int amountOfShares, int fieldSize
     for(int i = 0; i < amountOfShares-1; i++)
     {
         int random = dist6(rng);
-        Share* share = new Share(random, party);
+        Share* share = new Share(random, party, batch_id, i);
         shares.emplace_back(share);
         sum+=random;
     }
-    shares.emplace_back(new Share((party->input-sum)%fieldSize, party));
+    shares.emplace_back(new Share((party->input-sum), party, batch_id, amountOfShares-1));
     return shares;
 }
 
@@ -56,7 +61,8 @@ void DistributeShares(std::vector<Party>& parties, Party* party, std::set<std::s
     for(int share = 0; share < shares.size(); share++)
     {
         //std::set<Party*> shouldNotReceive = *std::next(nonQualifiedSets.begin(), share);
-        std::set<Party*> shouldNotReceive = test[share];
+        std::set<Party*> shouldNotReceive;
+        if(test.size() != 0) shouldNotReceive = test[share];
 
         for(Party& p : parties)
         {
@@ -69,13 +75,14 @@ void DistributeShares(std::vector<Party>& parties, Party* party, std::set<std::s
     }
 }
 
-void DistributeInput(std::vector<Party>& parties, std::set<std::set<Party*>> nonQualifiedSets, int fieldSize, std::vector<std::set<Party*>> test)
+void DistributeInput(std::vector<Party>& parties, std::set<std::set<Party*>> nonQualifiedSets, int fieldSize, std::vector<std::set<Party*>> test, int& batch_id)
 {
     for(int i = 0; i < parties.size(); i++) {
 
         //Get the shares from party i
-        std::vector<Share*> shares = CreateShares(&parties[i], nonQualifiedSets.size(), fieldSize);
+        std::vector<Share*> shares = CreateShares(&parties[i], nonQualifiedSets.size(), fieldSize, batch_id);
         DistributeShares(parties, &parties[i], nonQualifiedSets, shares, test);
+        batch_id++;
     }
 }
 //
@@ -137,6 +144,159 @@ std::vector<Party*> GetRandomPartiesToReconstruct(std::vector<Party>& parties, i
     std::vector<Party*> randomParties;
     randomParties.assign(randomPartiesSet.begin(), randomPartiesSet.end());
     return randomParties;
+}
+
+int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, int batch_id_y, int amountOfShares)
+{
+    //ex multiplying x and y
+    //split into 3 shares
+    //x = x1 + x2 + x3
+    //y = y1 + y2 + y3
+    //x*y = (x1+x2+x3)*(y1+y2+y3)
+    //=> x*y = x1*y1 + x1*y2 + x1*y3 + x2*y1 + x2*y2 + x2*y3 + x3*y1 + x3*y2 + x3*y3
+
+    //(x1*y1) = 0,0,1,0
+    //(x1*y2) = 0,0,1,1
+    //(x1*y3) = 0,0,1,2
+    //(x2*y1) = 0,1,1,0
+    //(x2*y2) = 0,1,1,1
+    //(x2*y3) = 0,1,1,2
+    //(x3*y1) = 0,2,1,0
+    //(x3*y2) = 0,2,1,1
+    //(x3*y3) = 0,2,1,2
+    struct RequiredShare {
+        int batch_id_x;
+        int id_x;
+        int batch_id_y;
+        int id_y;
+
+        RequiredShare(int batch_id_x, int id_x, int batch_id_y, int id_y) {
+            this->batch_id_x = batch_id_x;
+            this->id_x = id_x;
+            this->batch_id_y = batch_id_y;
+            this->id_y = id_y;
+        }
+    };
+
+    //create all the required shares
+    std::vector<RequiredShare*> requiredShares;
+
+    for(int i = 0; i < amountOfShares; i++) {
+        for(int j = 0; j < amountOfShares; j++)
+        {
+            RequiredShare* r = new RequiredShare(batch_id_x, i, batch_id_y, j);
+            requiredShares.emplace_back(r);
+        }
+    }
+
+    //TODO: Look into just removing from the set
+    for(Party party : parties)
+    {
+        int sum = 0;
+        auto it = requiredShares.begin();
+        for(int i = 0; i < requiredShares.size(); i++)
+        {
+            RequiredShare* requiredShare = requiredShares[i];
+
+            auto contains_x_it = (std::find_if(party.shares.begin(), party.shares.end(), [&requiredShare](Share* arg)
+            {
+                return ((arg->batch_id == requiredShare->batch_id_x && arg->id == requiredShare->id_x));
+            }));
+
+            if(contains_x_it != party.shares.end())
+            {
+                auto contains_y_it = (std::find_if(party.shares.begin(), party.shares.end(), [&requiredShare](Share* arg)
+                {
+                    return ((arg->batch_id == requiredShare->batch_id_y && arg->id == requiredShare->id_y));
+                }));
+
+                if(contains_y_it != party.shares.end())
+                {
+                    sum += (*contains_x_it)->value * (*contains_y_it)->value;
+                    requiredShares.erase(it);
+                    //if we remove an element, the next element will be at current position, so we decrement iterator
+                    //and counter
+
+                    i--;
+                    it--;
+                }
+            }
+            it++;
+
+
+            //auto iterator = std::find_if(party.shares.begin(), party.shares.end(), [&requiredShare](Share* arg)
+            //{
+            //    return ((arg->batch_id == requiredShare->batch_id_x && arg->id == requiredShare->id_x) || (arg->batch_id == requiredShare->batch_id_y && arg->id == requiredShare->id_y));
+            //});
+            //
+            //if(iterator != std::end(party.shares))
+            //{
+            //    auto s = 1;
+            //}
+
+            auto s = 1;
+        }
+        std::cout << sum << std::endl;
+    }
+    auto t = 1;
+
+}
+
+int Addition(std::vector<Party*> partiesToReconstruct, int fieldSize, Party* x_owner, Party* y_owner)
+{
+    //Adding together the shares coming from x_owner and y_owner
+
+
+    //First naive implementation where we first iterate the shares and collect only the relevant ones
+    //This might however not be necessary, as we can instead just skip non relevant shares when iterating the entire
+    //set
+    //std::map<Party*, std::vector<Share*>> relevantShares;
+    //for(auto p : partiesToReconstruct)
+    //{
+    //    std::vector<Share*> temp_shares (p->shares.size());
+
+    //    auto it = std::copy_if (p->shares.begin(), p->shares.end(), temp_shares.begin(), [&x_owner, &y_owner](Share* share){return share->owner == x_owner || share->owner == y_owner;} );
+    //    temp_shares.resize(std::distance(temp_shares.begin(),it));
+    //    relevantShares[p] = temp_shares;
+    //    //std::copy_if(p.shares.begin(), p.shares.end(), std::back_inserter(temp_shares), comp());
+    //}
+
+
+    int result = 0;
+    std::set<Share*> usedShares;
+    for(Party* party : partiesToReconstruct)
+    {
+        int sum = 0;
+        for(Share* share : party->shares)
+        {
+            if(share->owner == x_owner || share->owner == y_owner)
+            {
+                if(usedShares.find(share) != usedShares.end()) continue;
+
+                sum += share->value;
+                usedShares.insert(share);
+            }
+        }
+
+        //Broadcast the result
+        std::cout << sum << std::endl;
+        result += (sum);
+    }
+    std::cout << "Result: " << result << std::endl;
+
+    //assuming that every party has the same amount of shares
+    //for(int i = 0; i < partiesToReconstruct[0].shares.size(); i++)
+    //{
+    //    Share* share;
+    //    for(auto p : partiesToReconstruct)
+    //    {
+    //    }
+    //}
+    //Find all the shares the parties have in common
+    //remove those shares from everyone but 1 party
+    //Each party adds their local shares and modulos the result
+    //Each party broadcasts their result to every other party
+    //Every party adds together the messages they recieve from the broadcasts and modulos the result
 }
 
 //void Reconstruct(std::vector<Party>& parties, int amountToReconstruct, int amountOfShares)
@@ -204,6 +364,21 @@ std::vector<Party> CreateParties(int honestParties)
     return parties;
 }
 
+std::vector<std::string> SplitInput(std::string input, std::string delimiter) {
+    size_t pos_start = 0, pos_end, delim_len = delimiter.length();
+    std::string token;
+    std::vector<std::string> res;
+
+    while ((pos_end = input.find (delimiter, pos_start)) != std::string::npos) {
+        token = input.substr (pos_start, pos_end - pos_start);
+        pos_start = pos_end + delim_len;
+        res.push_back (token);
+    }
+
+    res.push_back (input.substr (pos_start));
+    return res;
+}
+
 
 int main() {
 
@@ -213,13 +388,19 @@ int main() {
     //Define the field size as a large prime
     int fieldSize = 2147483647;
     //Amount of parties participating in the protocol
-    int amountOfParties = 15;
+    int amountOfParties = 3;
     //Amount of passive adversaries participating in the protocol
     //int amountOfPassiveAdversaries = 0;
     //Amount of parties with an input
     //int partiesWithInput = 1;
     //How many parties are required to reconstruct the secret
-    int amountToReconstruct = 11;
+    int amountToReconstruct = 2;
+    int batch_id = 0;
+
+
+    std::string input = "100 + 200 + 300";
+    std::vector<std::string> tokens = SplitInput(input, " ");
+
 
     //Create the parties participating in the protocol
     std::vector<Party> parties = CreateParties(amountOfParties);
@@ -233,7 +414,7 @@ int main() {
     nonQualifiedSetsIndexed.reserve (nonQualifiedSets.size ());
     std::copy (nonQualifiedSets.begin (), nonQualifiedSets.end (), std::back_inserter (nonQualifiedSetsIndexed));
 
-    DistributeInput(parties, nonQualifiedSets, fieldSize, nonQualifiedSetsIndexed);
+    DistributeInput(parties, nonQualifiedSets, fieldSize, nonQualifiedSetsIndexed, batch_id);
 
 
     //==================================== PHASE 2 =====================================================================
@@ -251,6 +432,9 @@ int main() {
 
     //For this purpose, we find x random parties to reconstruct
     std::vector<Party*> partiesToReconstruct = GetRandomPartiesToReconstruct(parties, amountToReconstruct);
+    //Addition(partiesToReconstruct, fieldSize, &parties[0], &parties[1]);
+    Multiplication(parties, fieldSize, 0, 1, 3);
+    //Addition(partiesToReconstruct, fieldSize, &parties[0], &parties[1]);
     //Now find all the shares all parties have in common
 
     //ReconstructAddition(parties);
