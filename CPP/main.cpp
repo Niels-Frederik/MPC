@@ -26,9 +26,11 @@ struct Share{
 struct Party{
     int input;
     std::set<Share*> shares;
+    bool hasInput;
 
-    explicit Party(int input) {
+    explicit Party(int input, bool hasInput) {
         this->input = input;
+        this->hasInput = hasInput;
     };
 
     void addShare(Share* share) {
@@ -83,9 +85,11 @@ void DistributeInput(std::vector<Party>& parties, int amountOfShares, int fieldS
 {
     for(int i = 0; i < parties.size(); i++) {
         //Get the shares from party i
-        std::vector<Share*> shares = CreateShares(&parties[i], amountOfShares, fieldSize, batch_id, id, NULL, false);
-        DistributeShares(parties, &parties[i], shares, nonQualified);
-        batch_id++;
+        if(parties[i].hasInput) {
+            std::vector<Share*> shares = CreateShares(&parties[i], amountOfShares, fieldSize, batch_id, id, NULL, false);
+            DistributeShares(parties, &parties[i], shares, nonQualified);
+            batch_id++;
+        }
     }
 }
 
@@ -265,13 +269,19 @@ int Addition(std::vector<Party>& parties, std::vector<Party*> partiesToReconstru
     //std::cout << "Result: " << result << std::endl;
 }
 
-std::vector<Party> CreateParties(int honestParties)
+std::vector<Party> CreateParties(int honestParties, std::map<int,int> inputs)
 {
     std::vector<Party> parties;
     for(int i = 0; i < honestParties; i++) {
         //Should be a random input here instead
-        Party party(100);
-        parties.push_back(party);
+        try{
+            auto val = inputs.at(i);
+            Party party(val, true);
+            parties.push_back(party);
+        } catch (const std::out_of_range& e) {
+            Party party(NULL, false);
+            parties.push_back(party);
+        }
     }
     return parties;
 }
@@ -326,23 +336,58 @@ int main() {
     int fieldSize = 2147483647;
     //int fieldSize = ;
     //Amount of parties participating in the protocol
-    int amountOfParties = 4;
+    int amountOfParties = 3;
     //Amount of passive adversaries participating in the protocol
     //int amountOfPassiveAdversaries = 0;
     //Amount of parties with an input
     //int partiesWithInput = 1;
     //How many parties are required to reconstruct the secret
-    int amountToReconstruct = ceil(amountOfParties*0.66);
-    //int amountToReconstruct = 2;
+    //int amountToReconstruct = ceil(amountOfParties*0.66);
+    int amountToReconstruct = 2;
     int batch_id = 0;
 
-    std::string input = "100 + 200 + 300";
+    std::string input = "100 + 200";
     std::vector<std::string> tokens = SplitInput(input, " ");
+    //map from batchId to input
+    //map from operand to tuple<batchIds>
+    std::string operand;
+    std::vector<std::tuple<std::string, std::tuple<int, int>>> operands;
+    std::map<int, int> inputs;
+    int batch_id_count = 0;
+    int tup_found = 0;
+
+    for (int i = 0; i < tokens.size(); ++i) {
+        //check if i is digit
+        if (!tokens[i].empty() && std::all_of(tokens[i].begin(), tokens[i].end(), ::isdigit)) {
+            inputs[batch_id_count] = std::stoi(tokens[i]);
+            tup_found++;
+            batch_id_count++;
+
+            if (tup_found == 2) {
+                tup_found = 0;
+                auto tup = std::make_tuple(operand, std::make_tuple(batch_id_count-1, batch_id_count - 2));
+                operands.emplace_back(tup);
+            }
+        } else {
+            //check if i is operand
+            if (tokens[i] == "+" || tokens[i] == "*") {
+                operand = tokens[i];
+                //if(tup_found == 2) {
+                //auto tup = std::make_tuple(tokens[i], std::make_tuple(inputs[batch_id_count], inputs[batch_id_count-1]));
+                //operands.emplace_back(tup);
+                //tup_found = 0;
+            }
+        }
+    }
+    auto s = 1;
+
+
+
 
     //Distribute each input to a party
 
     //Create the parties participating in the protocol
-    std::vector<Party> parties = CreateParties(amountOfParties);
+    std::vector<Party> parties = CreateParties(amountOfParties, inputs);
 
     //Define the Non qualified sets (secrecy structure) for share distribution (a basic threshold access structure)
     std::set<std::set<Party*>> nonQualifiedSets = FindNonQualifiedSets(parties, amountToReconstruct);
@@ -372,11 +417,11 @@ int main() {
     std::vector<Party*> partiesToReconstruct = GetRandomPartiesToReconstruct(parties, amountToReconstruct);
     Reconstruct(partiesToReconstruct, 0);
     Reconstruct(partiesToReconstruct, 1);
-    Reconstruct(partiesToReconstruct, 2);
+    //Reconstruct(partiesToReconstruct, 2);
     Multiplication(parties, fieldSize, 0, 1, nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id);
     //Reconstruct(partiesToReconstruct, 3);
     //Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize, 0, 1, batch_id);
-    Reconstruct(partiesToReconstruct, 3);
+    Reconstruct(partiesToReconstruct, 2);
     //Now find all the shares all parties have in commons
 
     //ReconstructAddition(parties);
