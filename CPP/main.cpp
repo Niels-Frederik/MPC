@@ -415,13 +415,33 @@ int main() {
 
     //For this purpose, we find x random parties to reconstruct
     std::vector<Party*> partiesToReconstruct = GetRandomPartiesToReconstruct(parties, amountToReconstruct);
-    Reconstruct(partiesToReconstruct, 0);
-    Reconstruct(partiesToReconstruct, 1);
+    for(auto batch : inputs) {
+        std::cout << "reconstructing input from batch id: " << batch.first << std::endl;
+        Reconstruct(partiesToReconstruct, batch.first);
+    }
+
+    for(auto ope : operands) {
+        std::cout << "doing: " << std::get<0>(ope) << " between batch: " << std::get<0>(std::get<1>(ope))
+                  << " and batch " << std::get<1>(std::get<1>(ope)) << std::endl;
+
+        if (std::get<0>(ope) == "+") {
+            Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize,
+                     std::get<0>(std::get<1>(ope)), std::get<1>(std::get<1>(ope)), batch_id);
+            Reconstruct(partiesToReconstruct, batch_id);
+
+        }
+        else if(std::get<0>(ope) == "*") {
+            Multiplication(parties, fieldSize, std::get<0>(std::get<1>(ope)), std::get<1>(std::get<1>(ope)),
+                           nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id);
+            Reconstruct(partiesToReconstruct, batch_id);
+        }
+    }
+
     //Reconstruct(partiesToReconstruct, 2);
-    Multiplication(parties, fieldSize, 0, 1, nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id);
+    //Multiplication(parties, fieldSize, 0, 1, nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id);
     //Reconstruct(partiesToReconstruct, 3);
     //Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize, 0, 1, batch_id);
-    Reconstruct(partiesToReconstruct, 2);
+    //Reconstruct(partiesToReconstruct, 2);
     //Now find all the shares all parties have in commons
 
     //ReconstructAddition(parties);
