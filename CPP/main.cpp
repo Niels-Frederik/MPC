@@ -87,6 +87,7 @@ void DistributeInput(std::vector<Party>& parties, int amountOfShares, int fieldS
         //Get the shares from party i
         if(parties[i].hasInput) {
             std::vector<Share*> shares = CreateShares(&parties[i], amountOfShares, fieldSize, batch_id, id, NULL, false);
+            std::cout << "Party " << i<< " distributes " << shares.size() << " shares from input " << parties[i].input << " batch(" << batch_id << ")" << std::endl;
             DistributeShares(parties, &parties[i], shares, nonQualified);
             batch_id++;
         }
@@ -145,6 +146,7 @@ void Reshare(std::vector<Party>& parties, Party* party, int fieldSize, int amoun
 
     auto shares = CreateShares(party, amountOfShares, fieldSize, batch_id, id, valueToReshare, true);
     DistributeShares(parties, party, shares, nonQualified);
+    std::cout << "Split input into " << shares.size() << " shares and redistributed them" << std::endl;
 
     //int id_count = 0;
     //for(int i = 0; i < parties.size()-1; i++)
@@ -176,6 +178,8 @@ int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, i
             this->id_y = id_y;
         }
     };
+
+    std::cout << "=========================== MULTIPLICATION ===============================" << std::endl;
 
     //create all the required shares
     std::vector<RequiredShare*> requiredShares;
@@ -226,9 +230,9 @@ int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, i
             it++;
         }
 
+        std::cout << "Party computed local shares to: " << sum << std::endl;
         Reshare(parties, &party, fieldSize, amountOfShares, nonQualified, sum, batch_id, id);
         id+=amountOfShares;
-        std::cout << sum << std::endl;
 
         //this approach the party does not distribute its 0 sum
         //if (partyParticipated)
@@ -238,14 +242,17 @@ int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, i
         //    std::cout << sum << std::endl;
         //}
     }
+    std::cout << "Multiplication done, results reshared as batch " << batch_id << std::endl;
     batch_id++;
+    std::cout << "==========================================================================" << std::endl;
 }
 
 
 int Addition(std::vector<Party>& parties, std::vector<Party*> partiesToReconstruct, std::vector<std::set<Party*>> nonQualified, int amountOfShares, int fieldSize, int batch_id_x, int batch_id_y, int& batch_id)
 {
     //Adding together the shares coming from x and y
-    int result = 0;
+    std::cout << "============================== ADDITION ==================================" << std::endl;
+    std::cout << "Addition between batch " << batch_id_x << " and batch " << batch_id_y << std::endl;
     std::set<Share*> usedShares;
     for(Party* party : partiesToReconstruct)
     {
@@ -260,13 +267,12 @@ int Addition(std::vector<Party>& parties, std::vector<Party*> partiesToReconstru
                 usedShares.insert(share);
             }
         }
+        std::cout << "Party computed local shares to: " << sum << std::endl;
         Reshare(parties, party, fieldSize, amountOfShares, nonQualified, sum, batch_id, 0);
-
-        //Broadcast the result
-        //std::cout << sum << std::endl;
-        //result += (sum);
     }
-    //std::cout << "Result: " << result << std::endl;
+    std::cout << "Addition done, results reshared as batch " << batch_id << std::endl;
+    batch_id++;
+    std::cout << "==========================================================================" << std::endl;
 }
 
 std::vector<Party> CreateParties(int honestParties, std::map<int,int> inputs)
@@ -289,6 +295,7 @@ std::vector<Party> CreateParties(int honestParties, std::map<int,int> inputs)
 void Reconstruct(std::vector<Party*> partiesToReconstruct, int batch_id_to_reconstruct)
 {
     int result = 0;
+    std::cout << partiesToReconstruct.size() << " parties are reconstructing batch " << batch_id_to_reconstruct << std::endl;
     std::set<Share*> usedShares;
     for(Party* party : partiesToReconstruct)
     {
@@ -305,7 +312,7 @@ void Reconstruct(std::vector<Party*> partiesToReconstruct, int batch_id_to_recon
         }
 
         //Broadcast the result
-        std::cout << sum << std::endl;
+        std::cout << "Party sum of shares: " << sum << std::endl;
         result += (sum);
     }
     std::cout << "Result: " << result << std::endl;
@@ -334,20 +341,14 @@ int main() {
 
     //Define the field size as a large prime
     int fieldSize = 2147483647;
-    //int fieldSize = ;
-    //Amount of parties participating in the protocol
-    int amountOfParties = 3;
-    //Amount of passive adversaries participating in the protocol
-    //int amountOfPassiveAdversaries = 0;
-    //Amount of parties with an input
-    //int partiesWithInput = 1;
-    //How many parties are required to reconstruct the secret
-    //int amountToReconstruct = ceil(amountOfParties*0.66);
-    int amountToReconstruct = 2;
+    int amountOfParties = 10;
+    int amountToReconstruct = floor(amountOfParties*0.5);
+    //int amountToReconstruct = 2;
     int batch_id = 0;
 
-    std::string input = "100 + 200";
+    std::string input = "100 + 200 + 300 + 400";
     std::vector<std::string> tokens = SplitInput(input, " ");
+
     //map from batchId to input
     //map from operand to tuple<batchIds>
     std::string operand;
@@ -372,19 +373,9 @@ int main() {
             //check if i is operand
             if (tokens[i] == "+" || tokens[i] == "*") {
                 operand = tokens[i];
-                //if(tup_found == 2) {
-                //auto tup = std::make_tuple(tokens[i], std::make_tuple(inputs[batch_id_count], inputs[batch_id_count-1]));
-                //operands.emplace_back(tup);
-                //tup_found = 0;
             }
         }
     }
-    auto s = 1;
-
-
-
-
-    //Distribute each input to a party
 
     //Create the parties participating in the protocol
     std::vector<Party> parties = CreateParties(amountOfParties, inputs);
@@ -404,17 +395,22 @@ int main() {
     //At this point all the inputs have been split into shares and distributed. We can now begin computing a function
     //on these shares. Depending on the input and function to compute, we have to do some different things
 
-    //Common for all is however some way of determining which party uses which shares, as they are replicated among many
-    //parties. That is, if we want to ex. compute x1+y1, we have multiple parties who can do this, but only one party
-    //has to do it, otherwise the result will be inaccurate.
-
-    //in case of simple addition, we can just add the shares together locally for each party, and send the result to the
-    //other parties. They can then add their own intermediate result with the results they receive from the other parties
-
-    //In case of multiplication, we have to do some more work --- tbc
-
     //For this purpose, we find x random parties to reconstruct
     std::vector<Party*> partiesToReconstruct = GetRandomPartiesToReconstruct(parties, amountToReconstruct);
+
+
+    Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize,
+             0, 1, batch_id);
+
+    Reconstruct(partiesToReconstruct,batch_id-1);
+
+    Multiplication(parties, fieldSize, 0, 1,
+                   nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id);
+
+
+    Reconstruct(partiesToReconstruct,batch_id-1);
+
+    /*
     for(auto batch : inputs) {
         std::cout << "reconstructing input from batch id: " << batch.first << std::endl;
         Reconstruct(partiesToReconstruct, batch.first);
@@ -436,16 +432,7 @@ int main() {
             Reconstruct(partiesToReconstruct, batch_id);
         }
     }
+     */
 
-    //Reconstruct(partiesToReconstruct, 2);
-    //Multiplication(parties, fieldSize, 0, 1, nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id);
-    //Reconstruct(partiesToReconstruct, 3);
-    //Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize, 0, 1, batch_id);
-    //Reconstruct(partiesToReconstruct, 2);
-    //Now find all the shares all parties have in commons
-
-    //ReconstructAddition(parties);
-
-    //Reconstruct(parties, amountToReconstruct, nonQualifiedSets.size());
     return 0;
 }
