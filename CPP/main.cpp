@@ -147,7 +147,7 @@ void Reshare(std::vector<Party>& parties, Party* party, int fieldSize, int amoun
     std::cout << "Split input into " << shares.size() << " shares and redistributed them" << std::endl;
 }
 
-int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, int batch_id_y, std::vector<std::set<Party*>> nonQualified, int amountOfShares, int& batch_id, int originalCountOfInputs)
+int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, int batch_id_y, std::vector<std::set<Party*>> nonQualified, int amountOfShares, int& batch_id, std::map<int,int>& batch_id_to_shares_count)
 {
     struct RequiredShare {
         int batch_id_x;
@@ -169,12 +169,12 @@ int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, i
     //create all the required shares
     std::list<RequiredShare> requiredSharesList;
 
-    int x_amount_of_shares = (batch_id_x >= originalCountOfInputs) ? amountOfShares*parties.size() : amountOfShares;
-    int y_amount_of_shares = (batch_id_y >= originalCountOfInputs) ? amountOfShares*parties.size() : amountOfShares;
+    //int x_amount_of_shares = (batch_id_x >= originalCountOfInputs) ? amountOfShares*parties.size() : amountOfShares;
+    //int y_amount_of_shares = (batch_id_y >= originalCountOfInputs) ? amountOfShares*parties.size() : amountOfShares;
 
     //TODO: Not necesarilly the correct numbers here, as the shares can have different amounts
-    for(int i = 0; i < x_amount_of_shares; i++) {
-        for(int j = 0; j < y_amount_of_shares; j++)
+    for(int i = 0; i < batch_id_to_shares_count[batch_id_x]; i++) {
+        for(int j = 0; j < batch_id_to_shares_count[batch_id_y]; j++)
         {
             RequiredShare r (batch_id_x, i, batch_id_y, j);
             requiredSharesList.emplace_back(r);
@@ -217,17 +217,19 @@ int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, i
         id+=amountOfShares;
     }
     std::cout << "Multiplication done, results reshared as batch " << batch_id << std::endl;
+    batch_id_to_shares_count[batch_id] = amountOfShares*parties.size();
     batch_id++;
     std::cout << "==========================================================================" << std::endl;
 }
 
 
-int Addition(std::vector<Party>& parties, std::vector<Party*> partiesToReconstruct, std::vector<std::set<Party*>> nonQualified, int amountOfShares, int fieldSize, int batch_id_x, int batch_id_y, int& batch_id)
+int Addition(std::vector<Party>& parties, std::vector<Party*> partiesToReconstruct, std::vector<std::set<Party*>> nonQualified, int amountOfShares, int fieldSize, int batch_id_x, int batch_id_y, int& batch_id, std::map<int,int>& batch_id_to_shares_count)
 {
     //Adding together the shares coming from x and y
     std::cout << "============================== ADDITION ==================================" << std::endl;
     std::cout << "Addition between batch " << batch_id_x << " and batch " << batch_id_y << std::endl;
     std::set<Share*> usedShares;
+    int id = 0;
     for(Party* party : partiesToReconstruct)
     {
         int sum = 0;
@@ -242,9 +244,11 @@ int Addition(std::vector<Party>& parties, std::vector<Party*> partiesToReconstru
             }
         }
         std::cout << "Party computed local shares to: " << sum << std::endl;
-        Reshare(parties, party, fieldSize, amountOfShares, nonQualified, sum, batch_id, 0);
+        Reshare(parties, party, fieldSize, amountOfShares, nonQualified, sum, batch_id, id);
+        id+=amountOfShares;
     }
     std::cout << "Addition done, results reshared as batch " << batch_id << std::endl;
+    batch_id_to_shares_count[batch_id] = amountOfShares*partiesToReconstruct.size();
     batch_id++;
     std::cout << "==========================================================================" << std::endl;
 }
@@ -320,7 +324,9 @@ int main() {
     int fieldSize = 2147483647;
     int amountOfParties = 10;
     int amountToReconstruct = floor(amountOfParties*0.5);
+    //int amountToReconstruct = floor(amountOfParties*0.66);
     int batch_id = 0;
+    std::map<int,int> batch_id_count_of_shares;
 
     std::string input = "10,20,30,40";
     std::vector<std::string> tokens = SplitInput(input, ",");
@@ -331,6 +337,12 @@ int main() {
 
     //Define the Non qualified sets (secrecy structure) for share distribution (a basic threshold access structure)
     std::set<std::set<Party*>> nonQualifiedSets = FindNonQualifiedSets(parties, amountToReconstruct);
+
+    //The original inputs all have amount of shares equal to unqualified sets
+    for(int i = 0; i < tokens.size(); i++)
+    {
+        batch_id_count_of_shares[i] = nonQualifiedSets.size();
+    }
 
     //Transform set of nonQualified to vector for indexes to use in distributing shares. This makes lookup time
     //O(1) instead of O(n), which dramatically increases performance (test with 15 parties made a 10x difference)
@@ -356,14 +368,16 @@ int main() {
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
     Multiplication(parties, fieldSize, 0, 1,
-                   nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id, tokens.size());
+                   nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id, batch_id_count_of_shares);
 
     Reconstruct(partiesToReconstruct,batch_id-1);
 
-    Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize,0, batch_id-1, batch_id);
+    Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize,0, batch_id-1, batch_id, batch_id_count_of_shares);
 
-    //Multiplication(parties, fieldSize, 0, batch_id-1,
-    //               nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id, tokens.size());
+    Reconstruct(partiesToReconstruct,batch_id-1);
+
+    Multiplication(parties, fieldSize, 0, batch_id-1,
+                   nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id, batch_id_count_of_shares);
 
     std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
 
