@@ -360,11 +360,6 @@ int main() {
     std::vector<Party*> partiesToReconstruct = GetRandomPartiesToReconstruct(parties, amountToReconstruct);
 
 
-    //Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize,
-    //         0, 1, batch_id);
-
-    //Reconstruct(partiesToReconstruct,batch_id-1);
-
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
     Multiplication(parties, fieldSize, 0, 1,
