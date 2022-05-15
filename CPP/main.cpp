@@ -4,6 +4,7 @@
 #include <random>
 #include <math.h>
 #include <map>
+#include <list>
 
 //Needs to be declared because of circular dependency
 struct Party;
@@ -42,7 +43,7 @@ std::vector<Share*> CreateShares(Party* party, int amountOfShares, int fieldSize
 {
     std::random_device dev;
     std::mt19937 rng(dev());
-    std::uniform_int_distribution<std::mt19937::result_type> dist6(1,fieldSize); // distribution in range [1, intmax]
+    std::uniform_int_distribution<std::mt19937::result_type> dist6(1,fieldSize);
 
     std::vector<Share*> shares;
     int sum = 0;
@@ -97,8 +98,8 @@ void DistributeInput(std::vector<Party>& parties, int amountOfShares, int fieldS
 std::set<std::set<Party*>> x_out_of_y_setCombinations(std::vector<Party>& parties, int x, int y)
 {
     std::set<std::set<Party*>> combinations = std::set<std::set<Party*>>();
-    std::string bitmask(x, 1); // K leading 1's
-    bitmask.resize(y, 0); // N-K trailing 0's
+    std::string bitmask(x, 1);
+    bitmask.resize(y, 0);
 
     do {
         std::set<Party*> combination;
@@ -115,11 +116,8 @@ std::set<std::set<Party*>> x_out_of_y_setCombinations(std::vector<Party>& partie
 std::set<std::set<Party*>> FindNonQualifiedSets(std::vector<Party>& parties, int amountToReconstruct) {
 
     std::set<std::set<Party*>> NonQualifiedSets = std::set<std::set<Party*>>();
-    //for(int i = 1; i < amountToReconstruct; i++)
-    //{
-        std::set<std::set<Party*>> combinations = x_out_of_y_setCombinations(parties, amountToReconstruct-1, parties.size());
-        NonQualifiedSets.insert(combinations.begin(), combinations.end());
-    //}
+    std::set<std::set<Party*>> combinations = x_out_of_y_setCombinations(parties, amountToReconstruct-1, parties.size());
+    NonQualifiedSets.insert(combinations.begin(), combinations.end());
     return NonQualifiedSets;
 }
 
@@ -147,23 +145,9 @@ void Reshare(std::vector<Party>& parties, Party* party, int fieldSize, int amoun
     auto shares = CreateShares(party, amountOfShares, fieldSize, batch_id, id, valueToReshare, true);
     DistributeShares(parties, party, shares, nonQualified);
     std::cout << "Split input into " << shares.size() << " shares and redistributed them" << std::endl;
-
-    //int id_count = 0;
-    //for(int i = 0; i < parties.size()-1; i++)
-    //{
-    //    //Generate a random number between 1 and fieldSize
-    //    int randomNumber = dist6(rng);
-
-    //    //Create a new share
-    //    Share* share = new Share(randomNumber+valueToReshare, party, batch_id, id_count);
-
-    //    id_count++;
-    //    //Share(int v, Party* o, int batch_id, int id){
-
-    //}
 }
 
-int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, int batch_id_y, std::vector<std::set<Party*>> nonQualified, int amountOfShares, int& batch_id)
+int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, int batch_id_y, std::vector<std::set<Party*>> nonQualified, int amountOfShares, int& batch_id, int originalCountOfInputs)
 {
     struct RequiredShare {
         int batch_id_x;
@@ -180,67 +164,57 @@ int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, i
     };
 
     std::cout << "=========================== MULTIPLICATION ===============================" << std::endl;
+    std::cout << "Multiplication between batch " << batch_id_x << " and batch " << batch_id_y << std::endl;
 
     //create all the required shares
-    std::vector<RequiredShare*> requiredShares;
+    std::list<RequiredShare> requiredSharesList;
+
+    int x_amount_of_shares = (batch_id_x >= originalCountOfInputs) ? amountOfShares*parties.size() : amountOfShares;
+    int y_amount_of_shares = (batch_id_y >= originalCountOfInputs) ? amountOfShares*parties.size() : amountOfShares;
 
     //TODO: Not necesarilly the correct numbers here, as the shares can have different amounts
-    for(int i = 0; i < amountOfShares; i++) {
-        for(int j = 0; j < amountOfShares; j++)
+    for(int i = 0; i < x_amount_of_shares; i++) {
+        for(int j = 0; j < y_amount_of_shares; j++)
         {
-            RequiredShare* r = new RequiredShare(batch_id_x, i, batch_id_y, j);
-            requiredShares.emplace_back(r);
+            RequiredShare r (batch_id_x, i, batch_id_y, j);
+            requiredSharesList.emplace_back(r);
         }
     }
 
     int id = 0;
     for(Party party : parties)
     {
-        bool partyParticipated = false;
+        std::vector<RequiredShare*> unusedShares;
         int sum = 0;
-        auto it = requiredShares.begin();
-        for(int i = 0; i < requiredShares.size(); i++)
+        std::list<RequiredShare>::iterator requiredShare = requiredSharesList.begin();
+        while(requiredShare != requiredSharesList.end())
         {
-            RequiredShare* requiredShare = requiredShares[i];
-
+            bool usedShare = false;
             auto contains_x_it = (std::find_if(party.shares.begin(), party.shares.end(), [&requiredShare](Share* arg)
             {
-                return ((arg->batch_id == requiredShare->batch_id_x && arg->id == requiredShare->id_x));
+                return ((arg->batch_id == (*requiredShare).batch_id_x && arg->id == (*requiredShare).id_x));
             }));
 
             if(contains_x_it != party.shares.end())
             {
                 auto contains_y_it = (std::find_if(party.shares.begin(), party.shares.end(), [&requiredShare](Share* arg)
                 {
-                    return ((arg->batch_id == requiredShare->batch_id_y && arg->id == requiredShare->id_y));
+                    return ((arg->batch_id == (*requiredShare).batch_id_y && arg->id == (*requiredShare).id_y));
                 }));
 
                 if(contains_y_it != party.shares.end())
                 {
                     sum += (*contains_x_it)->value * (*contains_y_it)->value;
-                    requiredShares.erase(it);
-                    partyParticipated = true;
-                    //if we remove an element, the next element will be at current position, so we decrement iterator
-                    //and counter
-
-                    i--;
-                    it--;
+                    requiredSharesList.erase(requiredShare++);
+                    usedShare = true;
                 }
             }
-            it++;
+            if(!usedShare) ++requiredShare;
         }
 
         std::cout << "Party computed local shares to: " << sum << std::endl;
         Reshare(parties, &party, fieldSize, amountOfShares, nonQualified, sum, batch_id, id);
         id+=amountOfShares;
-
-        //this approach the party does not distribute its 0 sum
-        //if (partyParticipated)
-        //{
-        //    Reshare(parties, &party, fieldSize, amountOfShares, nonQualified, sum, batch_id, id);
-        //    id+=amountOfShares;
-        //    std::cout << sum << std::endl;
-        //}
     }
     std::cout << "Multiplication done, results reshared as batch " << batch_id << std::endl;
     batch_id++;
@@ -275,16 +249,19 @@ int Addition(std::vector<Party>& parties, std::vector<Party*> partiesToReconstru
     std::cout << "==========================================================================" << std::endl;
 }
 
-std::vector<Party> CreateParties(int honestParties, std::map<int,int> inputs)
+std::vector<Party> CreateParties(int amountOfParties, std::vector<std::string> inputs)
 {
     std::vector<Party> parties;
-    for(int i = 0; i < honestParties; i++) {
-        //Should be a random input here instead
-        try{
-            auto val = inputs.at(i);
-            Party party(val, true);
+    int inputCount = 0;
+    for(int i = 0; i < amountOfParties; i++) {
+        if(inputCount < inputs.size())
+        {
+            Party party(stoi(inputs[inputCount]), true);
             parties.push_back(party);
-        } catch (const std::out_of_range& e) {
+            inputCount++;
+        }
+        else
+        {
             Party party(NULL, false);
             parties.push_back(party);
         }
@@ -343,42 +320,14 @@ int main() {
     int fieldSize = 2147483647;
     int amountOfParties = 10;
     int amountToReconstruct = floor(amountOfParties*0.5);
-    //int amountToReconstruct = 2;
     int batch_id = 0;
 
-    std::string input = "100 + 200 + 300 + 400";
-    std::vector<std::string> tokens = SplitInput(input, " ");
+    std::string input = "10,20,30,40";
+    std::vector<std::string> tokens = SplitInput(input, ",");
 
-    //map from batchId to input
-    //map from operand to tuple<batchIds>
-    std::string operand;
-    std::vector<std::tuple<std::string, std::tuple<int, int>>> operands;
-    std::map<int, int> inputs;
-    int batch_id_count = 0;
-    int tup_found = 0;
-
-    for (int i = 0; i < tokens.size(); ++i) {
-        //check if i is digit
-        if (!tokens[i].empty() && std::all_of(tokens[i].begin(), tokens[i].end(), ::isdigit)) {
-            inputs[batch_id_count] = std::stoi(tokens[i]);
-            tup_found++;
-            batch_id_count++;
-
-            if (tup_found == 2) {
-                tup_found = 0;
-                auto tup = std::make_tuple(operand, std::make_tuple(batch_id_count-1, batch_id_count - 2));
-                operands.emplace_back(tup);
-            }
-        } else {
-            //check if i is operand
-            if (tokens[i] == "+" || tokens[i] == "*") {
-                operand = tokens[i];
-            }
-        }
-    }
 
     //Create the parties participating in the protocol
-    std::vector<Party> parties = CreateParties(amountOfParties, inputs);
+    std::vector<Party> parties = CreateParties(amountOfParties, tokens);
 
     //Define the Non qualified sets (secrecy structure) for share distribution (a basic threshold access structure)
     std::set<std::set<Party*>> nonQualifiedSets = FindNonQualifiedSets(parties, amountToReconstruct);
@@ -399,40 +348,28 @@ int main() {
     std::vector<Party*> partiesToReconstruct = GetRandomPartiesToReconstruct(parties, amountToReconstruct);
 
 
-    Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize,
-             0, 1, batch_id);
+    //Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize,
+    //         0, 1, batch_id);
 
-    Reconstruct(partiesToReconstruct,batch_id-1);
+    //Reconstruct(partiesToReconstruct,batch_id-1);
+
+    std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
     Multiplication(parties, fieldSize, 0, 1,
-                   nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id);
-
+                   nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id, tokens.size());
 
     Reconstruct(partiesToReconstruct,batch_id-1);
 
-    /*
-    for(auto batch : inputs) {
-        std::cout << "reconstructing input from batch id: " << batch.first << std::endl;
-        Reconstruct(partiesToReconstruct, batch.first);
-    }
+    Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize,0, batch_id-1, batch_id);
 
-    for(auto ope : operands) {
-        std::cout << "doing: " << std::get<0>(ope) << " between batch: " << std::get<0>(std::get<1>(ope))
-                  << " and batch " << std::get<1>(std::get<1>(ope)) << std::endl;
+    //Multiplication(parties, fieldSize, 0, batch_id-1,
+    //               nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id, tokens.size());
 
-        if (std::get<0>(ope) == "+") {
-            Addition(parties, partiesToReconstruct, nonQualifiedSetsIndexed, nonQualifiedSets.size(), fieldSize,
-                     std::get<0>(std::get<1>(ope)), std::get<1>(std::get<1>(ope)), batch_id);
-            Reconstruct(partiesToReconstruct, batch_id);
+    std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
 
-        }
-        else if(std::get<0>(ope) == "*") {
-            Multiplication(parties, fieldSize, std::get<0>(std::get<1>(ope)), std::get<1>(std::get<1>(ope)),
-                           nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id);
-            Reconstruct(partiesToReconstruct, batch_id);
-        }
-    }
-     */
+    std::cout << "Time taken by function: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count() << " milliseconds" << std::endl;
+
+    Reconstruct(partiesToReconstruct,batch_id-1);
 
     return 0;
 }
