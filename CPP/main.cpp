@@ -169,10 +169,6 @@ int Multiplication(std::vector<Party>& parties, int fieldSize, int batch_id_x, i
     //create all the required shares
     std::list<RequiredShare> requiredSharesList;
 
-    //int x_amount_of_shares = (batch_id_x >= originalCountOfInputs) ? amountOfShares*parties.size() : amountOfShares;
-    //int y_amount_of_shares = (batch_id_y >= originalCountOfInputs) ? amountOfShares*parties.size() : amountOfShares;
-
-    //TODO: Not necesarilly the correct numbers here, as the shares can have different amounts
     for(int i = 0; i < batch_id_to_shares_count[batch_id_x]; i++) {
         for(int j = 0; j < batch_id_to_shares_count[batch_id_y]; j++)
         {
@@ -323,14 +319,13 @@ int main() {
     //Define the field size as a large prime
     int fieldSize = 2147483647;
     int amountOfParties = 10;
+    //t-out-of-n threshold where t = n/2
     int amountToReconstruct = floor(amountOfParties*0.5);
-    //int amountToReconstruct = floor(amountOfParties*0.66);
     int batch_id = 0;
     std::map<int,int> batch_id_count_of_shares;
 
     std::string input = "10,20,30,40";
     std::vector<std::string> tokens = SplitInput(input, ",");
-
 
     //Create the parties participating in the protocol
     std::vector<Party> parties = CreateParties(amountOfParties, tokens);
@@ -355,10 +350,7 @@ int main() {
     //==================================== PHASE 2 =====================================================================
     //At this point all the inputs have been split into shares and distributed. We can now begin computing a function
     //on these shares. Depending on the input and function to compute, we have to do some different things
-
-    //For this purpose, we find x random parties to reconstruct
     std::vector<Party*> partiesToReconstruct = GetRandomPartiesToReconstruct(parties, amountToReconstruct);
-
 
     std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
@@ -373,10 +365,6 @@ int main() {
 
     Multiplication(parties, fieldSize, 0, batch_id-1,
                    nonQualifiedSetsIndexed, nonQualifiedSets.size(), batch_id, batch_id_count_of_shares);
-
-    std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
-
-    std::cout << "Time taken by function: " << std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1).count() << " milliseconds" << std::endl;
 
     Reconstruct(partiesToReconstruct,batch_id-1);
 
